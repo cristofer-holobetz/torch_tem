@@ -210,7 +210,7 @@ def rate_map(forward, model, environments):
             #print('len(cells): {0}'.format(len(cells)))
             for f, frequency in enumerate(cells):
                 #print('len(frequency): {0}'.format(len(frequency)))
-                # Average across visits of the each location, but only the second half of the visits so model roughly know the environment
+                # Average across visits of the each location, but only the second half of the visits so model roughly knows the environment
                 for l, location in enumerate(frequency):
                     #print('len(location): {0}'.format(len(location)))
                     frequency[l] = sum(location[int(len(location)/2):]) / len(location[int(len(location)/2):]) if len(location[int(len(location)/2):]) > 0 else np.zeros(n_cells[f])
@@ -227,11 +227,90 @@ def rate_map(forward, model, environments):
     #print('{0}'.format(len(all_p[0][0][0][0]))) int
     # Return list of locations x cells matrix of firing rates for each frequency module for each environment
     #print('all_g[0][0][0]: {0}\n'.format(all_g[0][0][0]))
-    #print('all_p: {0}]\n'.format(all_p))
+    #print('all_p: {0}]\n'.format(all_p))::-1]
+    
     return all_g, all_p
+
+def reverse_trajectory(trace):
+    
+    return trace[::-1]
+
+def path_dependence(three_arm_trajectories):
+    
+    # left -> center, center -> left, center -> right, right -> center
+    LC, CL, CR, RC = three_arm_trajectories
+    
+    # The center (shared) portion of every trajectory
+    LC_C = LC[-4:]
+    RC_C = RC[-4:]
+    CL_C = CL[1:4]
+    CR_C = CR[1:4]
+    
+    # both inbound compare destinations
+    inbound_overlap = normalized_overlap(LC_C, RC_C)
+    
+    # both outbound compare destinations
+    outbound_overlap = normalized_overlap(CL_C, CR_C)
+    
+    # both left trajectories compare direction
+    left_trajectories_overlap = normalized_overlap(LC, CL[::-1])
+    
+    # both right trajectories compare direction
+    right_trajectories_overlap = normalized_overlap(RC, CR[::-1])
+    
+    return inbound_overlap, outbound_overlap, left_trajectories_overlap, right_trajectories_overlap
+    
+def plot_path_dependence(three_arm_trajectories):
+    
+    fig, axs = plt.subplots()
+    
+    axs[0].plot()
+    
+def make_all_p_nonnegative(p_env, normalize_only_neighbor=False):
+    all_p_nonnegative = copy.deepcopy(p_env)
+    for frequency in range(len(p_env)):
+        for trajectory in range(len(p_env[frequency])):
+            for cell_num in range(len(p_env[frequency][trajectory][0])):
+                traj_by_loc_by_cell = np.array(p_env[frequency])
+                all_traj_min = np.min(traj_by_loc_by_cell[:, :, cell_num][traj_by_loc_by_cell[:, :, cell_num] != -999])
+                all_traj_max = np.max(traj_by_loc_by_cell[:, :, cell_num][traj_by_loc_by_cell[:, :, cell_num] != -999] - all_traj_min)
+                if all_traj_min != 0 and all_traj_max != 0:
+                    trajectory_loc_by_cell = all_p_nonnegative[frequency][trajectory][:, cell_num]
+                    # Shift and scale all non -999 values
+                    trajectory_loc_by_cell[trajectory_loc_by_cell != -999] = trajectory_loc_by_cell[trajectory_loc_by_cell != -999] - all_traj_min
+                    trajectory_loc_by_cell[trajectory_loc_by_cell != -999] = trajectory_loc_by_cell[trajectory_loc_by_cell != -999] / all_traj_max
+                    all_p_nonnegative[frequency][trajectory][:, cell_num] = trajectory_loc_by_cell
+                    #print(trajectory)
+    return all_p_nonnegative
+
+# Allow negative and positive traces
+def normalized_overlap(trace_a, trace_b):
+    
+    # Find regions where traces are on the same side vs the opposite side
+    same_side = np.sign(trace_a * trace_b)
+    min_trace = np.min(np.abs(np.vstack([trace_a, trace_b])), axis=0)
+    min_trace_area = np.sum(same_side * min_trace)
+    
+    #print('min_trace: {0}'.format(min_trace))
+    #print('sum: {0}'.format(np.sum(np.vstack([trace_a, trace_b]), axis=0)))
+    #elementwise_overlap = 2 * min_trace / np.sum(np.abs(np.vstack([trace_a, trace_b])), axis=0)
+    #print('elementwise_overlap0: {0}'.format(elementwise_overlap))
+    #elementwise_overlap[np.isnan(elementwise_overlap)] = 0
+    #print('elementwise_overlap1: {0}'.format(elementwise_overlap))
+    #total_overlap = np.sum(same_side * elementwise_overlap)
+    area_a, area_b = np.sum(np.abs(trace_a)), np.sum(np.abs(trace_b))
+    total_overlap = 2 * min_trace_area / (area_a + area_b) if (area_a + area_b != 0) else 0
+    return total_overlap
 
 def trajectory_len(trajectory):
     return abs(trajectory[1] - trajectory[0]) * 2 + 6
+
+def make_trajectory_dict():
+    trajectories = permutations(np.arange(6), r=2)
+    trajectory_dict = {}
+    for traj_idx, traj in enumerate(trajectories):
+        trajectory_dict[traj] = traj_idx
+    return trajectory_dict
 
 # Calculate rate maps for this model: what is the firing pattern for each cell at all locations?
 def trajectories_rate_maps(forward, model, environments, trajectories=list(permutations(np.arange(6), r=2))):
@@ -284,14 +363,14 @@ def trajectories_rate_maps(forward, model, environments, trajectories=list(permu
                     # trajectory_labels is of len(forward). Each item is the trajectory the animal was on at
                     # during step_i
                     if trajectory_labels[env_i][step_i] == trajectory_i:
-                        print('trajectory: {0}\ntrajectory_i: {1}\nf: {2}\nenv_i: {3}\nstep_i: {4}\ntrajectory_labels[env_i][step_i]: {5}\nlocation: {6}\n'.format(trajectory, trajectory_i, f, env_i, step_i, trajectory_labels[env_i][step_i], step.g[env_i]['id']))
+                        #print('trajectory: {0}\ntrajectory_i: {1}\nf: {2}\nenv_i: {3}\nstep_i: {4}\ntrajectory_labels[env_i][step_i]: {5}\nlocation: {6}\n'.format(trajectory, trajectory_i, f, env_i, step_i, trajectory_labels[env_i][step_i], step.g[env_i]['id']))
                         #print(g[f])
                         #print('g[0][1][1]: {0}'.format(g[0][1][1]))
                         #print(g[f][trajectory_i])
                         #print('g[f][trajectory_i][step.g[env_i][\'id\']]: {0}'.format(g[f][trajectory_i][step.g[env_i]['id']]))
                         g[f][trajectory_i][step.g[env_i]['id']].append(step.g_inf[f][env_i].numpy())
                         p[f][trajectory_i][step.g[env_i]['id']].append(step.p_inf[f][env_i].numpy())
-                        print(g[f][trajectory_i][step.g[env_i]['id']])
+                        #print(g[f][trajectory_i][step.g[env_i]['id']])
         # Now average across location visits to get a single representation vector for each location for each frequency
         for cells, n_cells in zip([p, g], [model.hyper['n_p'], model.hyper['n_g']]):
             #print('len(cells): {0}'.format(len(cells)))
@@ -302,8 +381,8 @@ def trajectories_rate_maps(forward, model, environments, trajectories=list(permu
                 for trajectory_i, trajectory in enumerate(frequency):
                     for l, location in enumerate(trajectory):
                         #print('len(location): {0}'.format(len(location)))
-                        frequency[trajectory_i][l] = sum(location[int(len(location)/2):]) / len(location[int(len(location)/2):]) if (len(location[int(len(location)/2):]) > 0) else np.ones(n_cells[f])
-                    # Then concatenate the locations to get a [locations x trajectories x cells for this frequency] matrix
+                        frequency[trajectory_i][l] = sum(location[int(len(location)/2):]) / len(location[int(len(location)/2):]) if (len(location[int(len(location)/2):]) > 0) else np.ones(n_cells[f]) * -999
+# Then concatenate the locations to get a [locations x trajectories x cells for this frequency] matrix
                     cells[f][trajectory_i] = np.stack(trajectory, axis=0)
                 #print('len(cells[f]): {0}'.format(len(cells[f])))
             # Append the final average representations of this environment to the list of representations across environments

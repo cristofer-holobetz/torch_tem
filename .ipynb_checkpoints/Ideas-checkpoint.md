@@ -12,7 +12,7 @@
     
 2. TEM does not achieve great generalization performance when trained on dissimilar environments
     - for example, training on gridworld followed by spatial alternation may not be particularly useful
-    - but I think that this animals actually do capitalize off of learning in structurally dissimilar environments. What are they capitalizing on?
+    - but I think that animals actually do capitalize off of learning in structurally dissimilar environments. What are they capitalizing on?
     
 
 
@@ -53,3 +53,46 @@
 
 1. Is there anything to extending these models to probabilistic environments?
 2. Once the state space is known in these tasks, the environments are deterministic
+3. One idea is to do spatial alternation with probabilistic rewards even under an optimal policy
+4. What would this let us study?
+
+---------------------------------------------------------------------------------------------
+
+1. One open question is how an animal identifies which context it's in. IE, when it has learned multiple tasks and therefore multiple MEC abstract task spaces, how does it know which to use?
+2. We can try to look at this a little in the return to exploration phase of our experiments
+3. At this point, animals have learned at least 2 abstract state spaces
+    a. spatial_alternation
+    b. multi_w_exploration
+4. Furthermore, we notice that scn2a animals continue to perform spatial alternation even in return to alternation
+5. How do they know when to switch?
+7. When animals move to alternation after return to exploration, what neural phenomena exist when they infer which task space to use? - immediately switch to the spatial_alternation 'mode'
+8. So is continued alternation behavior due to
+    a. no explorative tendencies and therefore no knowledge about change in task structure?
+    b. similar explorative tendencies but an inability to switch out the MEC map being used
+
+---------------------------------------------------------------------------------------------
+
+1. Honestly, what is the point of having a good state space representation if it can only be learned from near-optimal behavior?
+2. I think that the benefits of good representation cannot be identified when the animals are simply continuing to do the original spatial alternation
+3. Good representation's benefits are likely only exposed in more complicated scenarios
+4. What are these scenarios?
+5. Something about changing goal objects within the state space?
+6. Can probabilistic reward address this?
+
+7. Is it possible that good representations are most useful when goals change? IE you can navigate to a different sensory stimulus in the state space more easily?
+8. If this is the case, how do you get a rat to do this? With humans, you can just say "your salient cue is now a banana, navigate to that"
+9. With rats, you could instead have two different types of rewards - milk and water.
+10. At different times, food restrict xor water restrict them
+11. This should induce differences in sensory cue salience, and perhaps expose the importance of good representations
+12. Very wishy-washy - need to think through this more carefully
+
+I think the directly above is onto something
+
+1. good representations make reinforcement learning more effective
+2. let's let existence of splitter cells be a sign of good representations having been learned
+3. an argument can be made that these cells are useless for behavior because they arise as a result of perfect performance
+4. I argue that spatial alternation is not a sufficiently rich enough task to identify the usefulness of these good state space representations
+5. Recall that good state space representations are useful because they enable efficient reinforcement learning - give an agent a good state space and they will learn quickly, give them an irrelevant state space and they will learn poorly
+6. So to expose the utility of good representation, we need a task that incentivizes the rats to perform reinforcement learning again even after the state space has been identified
+7. This needs to occur in the form of some change in state values within the same 'true state space'
+8. First thing I can think of is the reward locations changing. You still need to do spatial alternation, but rewards are no longer at the ends of each arm

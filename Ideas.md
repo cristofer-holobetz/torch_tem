@@ -12,7 +12,7 @@
     
 2. TEM does not achieve great generalization performance when trained on dissimilar environments
     - for example, training on gridworld followed by spatial alternation may not be particularly useful
-    - but I think that this animals actually do capitalize off of learning in structurally dissimilar environments. What are they capitalizing on?
+    - but I think that animals actually do capitalize off of learning in structurally dissimilar environments. What are they capitalizing on?
     
 
 
@@ -85,3 +85,14 @@
 10. At different times, food restrict xor water restrict them
 11. This should induce differences in sensory cue salience, and perhaps expose the importance of good representations
 12. Very wishy-washy - need to think through this more carefully
+
+I think the directly above is onto something
+
+1. good representations make reinforcement learning more effective
+2. let's let existence of splitter cells be a sign of good representations having been learned
+3. an argument can be made that these cells are useless for behavior because they arise as a result of perfect performance
+4. I argue that spatial alternation is not a sufficiently rich enough task to identify the usefulness of these good state space representations
+5. Recall that good state space representations are useful because they enable efficient reinforcement learning - give an agent a good state space and they will learn quickly, give them an irrelevant state space and they will learn poorly
+6. So to expose the utility of good representation, we need a task that incentivizes the rats to perform reinforcement learning again even after the state space has been identified
+7. This needs to occur in the form of some change in state values within the same 'true state space'
+8. First thing I can think of is the reward locations changing. You still need to do spatial alternation, but rewards are no longer at the ends of each arm

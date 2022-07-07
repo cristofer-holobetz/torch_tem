@@ -20,7 +20,7 @@ import os
 import time
 from datetime import datetime
 
-def test_model(date, run, env_to_plot, index='0', which_plots=['zero-shot', 'rate_maps', 'acc_to_from', 'occupancy'], seed=0, save_dir=None, columns=25):
+def test_model(date, run, env_to_plot, index='0', which_plots=['zero-shot', 'rate_maps', 'trajectory_rate_maps', 'acc_to_from', 'occupancy'], seed=0, save_dir=None, columns=25):
     # Set random seeds for reproducibility
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -111,7 +111,13 @@ def test_model(date, run, env_to_plot, index='0', which_plots=['zero-shot', 'rat
         #print('p: {0}'.format(p))
         # Plot rate maps for all cells
         plot.plot_cells(p[env_to_plot], g[env_to_plot], environments[env_to_plot], n_f_ovc=(params['n_f_ovc'] if 'n_f_ovc' in params else 0), columns=columns, save_dir=save_dir, index=index, seed=seed)
-    
+
+    if 'trajectory_rate_maps' in which_plots:
+        
+        g, p = analyse.trajectory_rate_maps(forward, tem, environments)
+        
+        plot.plot_cells_trajectories(p[env_to_plot], g[env_to_plot], environments[env_to_plot], columns=columns, save_dir=save_dir, index=index, seed=seed)
+        
     if 'acc_to_from' in which_plots:
         # Calculate accuracy leaving from and arriving to each location
         from_acc, to_acc = analyse.location_accuracy(forward, tem, environments)

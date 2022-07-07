@@ -324,7 +324,7 @@ class Model(torch.nn.Module):
     def x_prev2x(self, x_prev, x_c):
         # Calculate factor for filtering from sigmoid of learned parameter
         alpha = [torch.nn.Sigmoid()(self.alpha[f]) for f in range(self.hyper['n_f'])]
-        # Do exponential temporal filtering for each frequency modulemod
+        # Do exponential temporal filtering for each frequency module
         x = [(1 - alpha[f]) * x_prev[f] + alpha[f] * x_c for f in range(self.hyper['n_f'])]
         return x
     
@@ -455,7 +455,7 @@ class Model(torch.nn.Module):
         return activation        
     
     def attractor(self, p_query, M, retrieve_it_mask=None):        
-        # Retreive grounded location from attractor network memory with weights M by pattern-completing query    
+        # Retrieve grounded location from attractor network memory with weights M by pattern-completing query    
         # For example, initial attractor input can come from abstract location (g_) or sensory experience (x_)                        
         # Start by flattening query grounded locations across frequency modules
         h_t = torch.cat(p_query, dim=1)

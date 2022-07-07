@@ -12,6 +12,8 @@ Created on Mon Mar 30 14:35:30 2020
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import numpy as np
+from itertools import permutations
+import analyse
 
 def plot_weights(models, params = None, steps = None, do_save = False):
     # If no parameter names specified: just take all of the trained ones from the model
@@ -26,7 +28,7 @@ def plot_weights(models, params = None, steps = None, do_save = False):
     for param in params:
         # Create figure and subplots
         fig, axs = plt.subplots(2, len(steps))
-        # Set it's size to something that is stretched horizontally so you can read titles
+        # Set its size to something that is stretched horizontally so you can read titles
         fig.set_size_inches(10, 4)
         # Figure overall title is the parameter name
         fig.suptitle(param)        
@@ -165,10 +167,139 @@ def plot_map(environment, values, ax=None, min_val=None, max_val=None, num_cols=
     # Return axes for further use
     return ax
 
-def plot_all_trajectories(environment, values, ax=None, min_val=None, max_val=None, num_cols=100, location_cm='viridis', action_cm='Pastel1', do_plot_actions=False, shape='square', radius=None):
+def plot_all_frequencies_all_cells_all_trajectories(p_env, environment, num_cols=13, verbose=False):
     
-    return
+    for frequency in np.arange(5):
+        plot_single_frequency_all_cells_all_trajectories(p_env, frequency, environment, num_cols, verbose)
+
+
+def plot_single_frequency_all_cells_all_trajectories(p_env, frequency, environment, num_cols=13, verbose=False):
     
+    for cell_num in np.arange(p_env[frequency][0][0].shape[0]):
+        plot_single_cell_all_trajectories(p_env, frequency, cell_num, environment, num_cols, verbose)
+        
+
+def plot_single_cell_all_trajectories(p_env, frequency, cell_num, environment, num_cols=13, verbose=False):
+    
+    fig, axs = plt.subplots(6, 6, figsize=(10, 6), tight_layout=True)
+    traj_by_loc_by_cell = np.array(p_env[frequency])
+    # Find min and max but ignore -999 which signifies locations that were never visited
+    all_traj_min = np.min(traj_by_loc_by_cell[:, :, cell_num][traj_by_loc_by_cell[:, :, cell_num] != -999])
+    all_traj_max = np.max(traj_by_loc_by_cell[:, :, cell_num][traj_by_loc_by_cell[:, :, cell_num] != -999] - all_traj_min)
+    #print('all_traj_min: {0}, all_traj_max: {1}'.format(all_traj_min, all_traj_max))
+    if (all_traj_min != 0) and (all_traj_max != 0):
+        for row in np.arange(6):
+            for col in np.arange(6):
+                axs[row, col].axis('off')
+                if row != col:
+                    axs[row, col] = plot_single_cell_single_trajectory(p_env, frequency=frequency, trajectory=(row, col), cell_num=cell_num, environment=environment, min_val=all_traj_min, max_val=all_traj_max, num_cols=13, verbose=False, ax=axs[row, col])
+
+        fig.suptitle('cell {0}.{1}'.format(frequency, cell_num))
+
+        
+        
+def plot_single_cell_single_trajectory(p_env, frequency, trajectory, cell_num, environment, location_cm='viridis', action_cm='Pastel1', do_plot_actions=False, shape='square', radius=None, min_val=None, max_val=None, fig=None, ax=None, num_cols=10, verbose=False):
+
+    trajectory_dict = analyse.make_trajectory_dict()
+    trajectory_i = trajectory_dict[trajectory]
+    trajectory_loc_by_cells = np.array(p_env[frequency][trajectory_i])
+    values = trajectory_loc_by_cells[:, cell_num]
+
+    # If min_val and max_val are not specified: take the minimum and maximum of the supplied values
+    #print('values: {0}'.format(values))
+    #print(values)
+    #print(values[values != 0])
+    values[values != -999] = values[values != -999] - min_val
+    values[values == -999] = 0
+    values = np.divide(values, max_val)
+    #print(np.min(values), np.max(values))
+    #min_val = np.min(values) if np.count_nonzero(values) else 0 if min_val is None else min_val
+    #max_val = np.max(values) if np.count_nonzero(values) else 0 if max_val is None else max_val
+    # Create color map for locations: colour given by value input
+    location_cm = cm.get_cmap(location_cm, num_cols)
+    # Create color map for actions: colour given by action index
+    action_cm = cm.get_cmap(action_cm, environment.n_actions)
+    # Calculate colour corresponding to each value
+    plotvals = np.floor(values * num_cols) if max_val != min_val else np.ones(values.shape)
+    
+    #print(plotvals)
+    #print('max: {0}, min: {1}'.format(np.max(plotvals), np.min(plotvals)))
+    # Initialise empty axis
+    ax = initialise_axes(ax, environment.env_type)
+    # Create empty list of location patches and action patches
+    location_patches, action_patches = [], []
+    # Make multi_w_exploration states all same sized squares
+    if environment.env_type in ['multi_w_exploration']:
+        length = 0.125
+        height = 0.125
+    elif environment.env_type in ['loop_laps']:
+        length = 0.250
+        height = 0.250
+    # Assume loop_laps
+    else:
+        length = 0.250
+        height = 0.250
+        
+    #print('length: {0}\nheight: {1}'.format(length, height))
+    if radius is None:
+        # redundant for now
+        if environment.env_type == 'loop_laps':
+            #radius = 0.250
+            length = 0.250
+            height = 0.250
+        elif environment.env_type == 'multi_w_exploration':
+            length = 0.125
+            height = 0.125
+        else:
+            # Calculate radius of location circles based on how many nodes there are
+            radius = 2*(0.01 + 1/(10*np.sqrt(environment.n_locations)))
+
+    # Now start drawing locations and actions
+    for i, location in enumerate(environment.locations):
+        #print('environment.env_type')
+        # Create patch for location
+        if environment.env_type in ['loop_laps']:
+            #print('({0})'.format((location['x']-length, location['y']-height)))
+            #print('length: {0}\nheight: {1}'.format(length, height))
+            location_patches.append(plt.Rectangle(((location['x']-length), location['y']-height), length, height, linewidth=2, edgecolor='white', facecolor=location_cm(int(plotvals[i]))) if shape == 'square'
+                                else plt.Circle((location['x'], location['y']), radius, color=location_cm(int(plotvals[i]))))
+        
+        # Create patch for location
+        elif environment.env_type in ['multi_w_exploration', 'multi_w_alternation']:
+            if not np.isnan(plotvals[i]):
+                location_patches.append(plt.Rectangle(((location['x'])-length, location['y']-height), length, height, linewidth=2, edgecolor='white', facecolor=location_cm(int(plotvals[i]))) if shape == 'square'
+                                else plt.Circle((location['x'], location['y']), radius, color=location_cm(int(plotvals[i]))))
+        
+        # And create action patches, if action plotting is switched on
+        if do_plot_actions:
+            for a, action in enumerate(location['actions']):
+                # Only draw patch if action probability is larger than 0
+                if action['probability'] > 0:
+                    # Find where this action takes you
+                    locations_to = [environment.locations[loc_to] for loc_to in np.where(np.array(action['transition'])>0)[0]]
+                    # Create an action patch for each possible transition for this action
+                    for loc_to in locations_to:
+                        action_patches.append(action_patch(location, loc_to, radius, action_cm(action['id'])))
+    # After drawing all locations, add shiny patches
+    for location in environment.locations:
+        # For shiny locations, add big red patch to indicate shiny
+        if location['shiny']:
+            # Create square patch for location
+            location_patches.append(plt.Rectangle((location['x']-radius/2, location['y']-radius/2), radius, radius, linewidth=1, facecolor='none', edgecolor=[1,0,0]) if shape == 'square'
+                                    else plt.Circle((location['x'], location['y']), radius, linewidth=1, facecolor='none', edgecolor=[1,0,0]))            
+    # Add patches to axes
+    for patch in location_patches + action_patches:
+        ax.add_patch(patch)
+        #print('length: {0}, height: {1}'.format(patch.get_width(), patch.get_height()))
+
+    # Return axes for further use
+    if verbose:
+        print(values)
+        
+    ax.set_title('trajectory {0}'.format((trajectory[0]+1, trajectory[1]+1)))
+    return ax
+
+
     
 def plot_actions(environment, field='probability', ax=None, min_val=None, max_val=None, num_cols=100, action_cm='viridis'):
     # If min_val and max_val are not specified: take the minimum and maximum of the supplied values
@@ -203,7 +334,7 @@ def plot_actions(environment, field='probability', ax=None, min_val=None, max_va
     for patch in (location_patches + action_patches):
         ax.add_patch(patch)
     # Return axes for further use
-    return ax        
+    return ax
 
 def plot_walk(environment, walk, max_steps=None, n_steps=1, ax=None):
     # Set maximum number of steps if not provided
