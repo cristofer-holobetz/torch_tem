@@ -10,6 +10,7 @@ import torch
 import pdb
 import copy
 from itertools import permutations
+from scipy.sparse.csgraph import shortest_path
 
 # Track prediction accuracy over walk, and calculate fraction of locations visited and actions taken to assess performance
 def performance(forward, model, environments):
@@ -283,8 +284,78 @@ def make_all_p_nonnegative(p_env, normalize_only_neighbor=False):
                     #print(trajectory)
     return all_p_nonnegative
 
+def get_path(pred, start, goal):
+    path = [goal]
+    k = goal
+    while pred[start, k] != -9999:
+        path.append(pred[start, k])
+        k = pred[start, k]
+    return path[::-1]
+
+def get_trajectory_states(trajectory, environment):
+    
+    trajectory_dict = make_trajectory_dict()
+    # Calculate graph properties for shortest path calculation between arms
+    adjacency = np.array(environment.adjacency) 
+    dists, pred = shortest_path(adjacency, directed=False, method='FW', return_predecessors=True)
+
+    curr_arm_end_state = trajectory[0] * 5
+    new_arm_end_state = trajectory[1] * 5
+    # Using the adjacency matrix, create a trajectory using a shortest path traversal from end of curr_arm to end of new_arm
+    #trajectory = self.get_path(pred, curr_arm_end_state, new_arm_end_state)[1:]
+    #print(trajectory)
+    
+    return [environment.locations[state_id]['id'] for state_id in get_path(pred, curr_arm_end_state, new_arm_end_state)][1:]
+
+def normalized_overlap_path_equivalence(traj_a_ident, traj_b_ident, trace_a, trace_b, environment, zero_trajectory_threshold=0, impute_val=-1):
+
+    traj_a_state_seq = np.array(get_trajectory_states(traj_a_ident, environment))
+    traj_b_state_seq = np.array(get_trajectory_states(traj_b_ident, environment))
+    
+    unambiguous_trajectory_locations = traj_a_state_seq != traj_b_state_seq
+    
+    unambiguous_trace_a = trace_a[unambiguous_trajectory_locations]
+    unambiguous_trace_b = trace_b[unambiguous_trajectory_locations]
+    
+    return normalized_overlap_traces(unambiguous_trace_a, unambiguous_trace_b, zero_trajectory_threshold, impute_val)
+
+def normalized_overlap_path_dependence(traj_a_ident, traj_b_ident, trace_a, trace_b, environment, zero_trajectory_threshold=0, impute_val=1):
+
+    traj_a_state_seq = np.array(get_trajectory_states(traj_a_ident, environment))
+    traj_b_state_seq = np.array(get_trajectory_states(traj_b_ident, environment))
+    
+    # For opposite_direction trajectories
+    if traj_a_ident == traj_b_ident[::-1]:
+        
+        # Flip traj_b before comparing
+        traj_b_state_seq = traj_b_state_seq[::-1]
+        trace_b = trace_b[::-1]
+        # Remove states that don't line up for trajectories a and b
+        traj_a_state_seq = traj_a_state_seq[:-1]
+        shared_trace_a = trace_a[:-1]
+        traj_b_state_seq = traj_b_state_seq[1:]
+        shared_trace_b = trace_b[1:]
+        
+    else:
+        
+        shared_trajectory_locations = traj_a_state_seq == traj_b_state_seq
+
+        shared_trace_a = trace_a[shared_trajectory_locations]
+        shared_trace_b = trace_b[shared_trajectory_locations]
+
+    return normalized_overlap_traces(shared_trace_a, shared_trace_b, zero_trajectory_threshold, impute_val)
+
 # Allow negative and positive traces
-def normalized_overlap(trace_a, trace_b):
+def normalized_overlap_traces(trace_a, trace_b, zero_trajectory_threshold=0, impute_val=1):
+    
+    # If trace maximum is below threshold, set this trajectory trace to 0
+    max_a = np.max(np.abs(trace_a))
+    max_b = np.max(np.abs(trace_b))
+    
+    if max_a < zero_trajectory_threshold:
+        trace_a = np.zeros(trace_a.shape)
+    if max_b < zero_trajectory_threshold:
+        trace_b = np.zeros(trace_b.shape)
     
     # Find regions where traces are on the same side vs the opposite side
     same_side = np.sign(trace_a * trace_b)
@@ -299,7 +370,7 @@ def normalized_overlap(trace_a, trace_b):
     #print('elementwise_overlap1: {0}'.format(elementwise_overlap))
     #total_overlap = np.sum(same_side * elementwise_overlap)
     area_a, area_b = np.sum(np.abs(trace_a)), np.sum(np.abs(trace_b))
-    total_overlap = 2 * min_trace_area / (area_a + area_b) if (area_a + area_b != 0) else 0
+    total_overlap = 2 * min_trace_area / (area_a + area_b) if (area_a + area_b != 0) else impute_val
     return total_overlap
 
 def trajectory_len(trajectory):
