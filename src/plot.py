@@ -1,0 +1,620 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Mar 30 14:35:30 2020
+
+@author: jacobb
+"""
+
+# Functions for plotting training and results of TEM
+
+# Standard library imports
+import matplotlib.pyplot as plt
+from matplotlib import cm
+import numpy as np
+from itertools import permutations
+import analyse
+
+def plot_weights(models, params = None, steps = None, do_save = False):
+    # If no parameter names specified: just take all of the trained ones from the model
+    if params is None:
+        params = [item[0] for item in models[0].named_parameters().items() if item[1].requires_grad]
+    # If no steps specified: just make them increase by 1 for each model
+    if steps is None:
+        steps = [i for i in range(len(models))]
+    # Collect this parameter in each model as provided
+    model_dicts = [{model_params[0] : model_params[1] for model_params in model.named_parameters()}  for model in models]        
+    # Plot each parameter separately
+    for param in params:
+        # Create figure and subplots
+        fig, axs = plt.subplots(2, len(steps))
+        # Set its size to something that is stretched horizontally so you can read titles
+        fig.set_size_inches(10, 4)
+        # Figure overall title is the parameter name
+        fig.suptitle(param)        
+        values = [model_params[param].detach().numpy() for model_params in model_dicts]
+        # On the first line of this figure: plot params at each step
+        for i, step in enumerate(steps):
+            # Plot variable values in subplot
+            axs[0, i].imshow(values[i])
+            axs[0, i].set_title('Step ' + str(step))
+        # On the second line of this figure: plot change in params between steps
+        for i in range(len(steps)-1):
+            # Plot the change in variables
+            axs[1, i].imshow(values[i+1] - values[i])
+            axs[1, i].set_title(str(steps[i]) + ' to ' + str(steps[i+1]) + ', ' + '{:.2E}'.format(np.mean(np.abs(values[i+1] - values[i]))/(steps[i+1]-steps[i])))
+        # On the very last axis: plot the total difference between the first and the last
+        axs[1, -1].imshow(values[-1] - values[0])
+        axs[1, -1].set_title(str(steps[0]) + ' to ' + str(steps[-1]) + ', ' + '{:.2E}'.format(np.mean(np.abs(values[-1] - values[0]))))
+        # If you want to save this figure: do so
+        if do_save:
+            fig.savefig('./figs/plot_weights_' + param + '.png')
+
+def plot_memory(iters, steps = None, do_save = False):
+    # If no steps specified: just make them increase by 1 for each model
+    if steps is None:
+        steps = [i for i in range(len(iters))]
+    # Set names of memory: inference and generative
+    names = ['Generative','Inference']
+    # Plot each parameter separately
+    for mem in range(len(iters[0].M)):
+        # Get current memory name
+        name = names[mem]
+        # Create figure and subplots
+        fig, axs = plt.subplots(len(iters[0].M[0]), len(steps))
+        # Set it's size to something that is stretched horizontally so you can read titles
+        fig.set_size_inches(len(steps)*2, len(iters[0].M[0]))
+        # Figure overall title is the parameter name
+        fig.suptitle(name + ' memory')
+        # Load the memory matrices - first on in each batch
+        batches = [iteration.M[mem] for iteration in iters]
+        # On the first line of this figure: plot params at each step
+        for col, step in enumerate(steps):      
+            for row, batch in enumerate(batches[col]):
+                if len(steps) == 1:
+                    # Plot variable values in subplot
+                    axs[row].imshow(batch.numpy())
+                    axs[row].set_title('Step ' + str(step) + ', batch ' + str(row))                    
+                else:
+                    # Plot variable values in subplot
+                    axs[row, col].imshow(batch.numpy())
+                    axs[row, col].set_title('Step ' + str(step) + ', batch ' + str(row))
+        # If you want to save this figure: do so
+        if do_save:
+            fig.savefig('./figs/plot_mem_' + name + '.png')
+
+def plot_map(environment, values, ax=None, min_val=None, max_val=None, num_cols=100, location_cm='viridis', action_cm='Pastel1', do_plot_actions=False, shape='square', radius=None):
+    # If min_val and max_val are not specified: take the minimum and maximum of the supplied values
+    #print('values: {0}'.format(values))
+    min_val = np.min(values) if min_val is None else min_val
+    max_val = np.max(values) if max_val is None else max_val
+    # Create color map for locations: colour given by value input
+    location_cm = cm.get_cmap(location_cm, num_cols)
+    # Create color map for actions: colour given by action index
+    action_cm = cm.get_cmap(action_cm, environment.n_actions)
+    # Calculate colour corresponding to each value
+    plotvals = np.floor((values - min_val) / (max_val - min_val) * num_cols) if max_val != min_val else np.ones(values.shape)
+    #print(plotvals)
+    #print('max: {0}, min: {1}'.format(np.max(plotvals), np.min(plotvals)))
+    # Initialise empty axis
+    ax = initialise_axes(ax, environment.env_type)
+    # Create empty list of location patches and action patches
+    location_patches, action_patches = [], []
+    # Make multi_w_exploration states all same sized squares
+    if environment.env_type in ['multi_w_exploration']:
+        length = 0.125
+        height = 0.125
+    elif environment.env_type in ['loop_laps']:
+        length = 0.250
+        height = 0.250
+    # Assume loop_laps
+    else:
+        length = 0.250
+        height = 0.250
+        
+    #print('length: {0}\nheight: {1}'.format(length, height))
+    if radius is None:
+        # redundant for now
+        if environment.env_type == 'loop_laps':
+            #radius = 0.250
+            length = 0.250
+            height = 0.250
+        elif environment.env_type == 'multi_w_exploration':
+            length = 0.125
+            height = 0.125
+        else:
+            # Calculate radius of location circles based on how many nodes there are
+            radius = 2*(0.01 + 1/(10*np.sqrt(environment.n_locations)))
+
+    # Now start drawing locations and actions
+    for i, location in enumerate(environment.locations):
+        #print('environment.env_type')
+        # Create patch for location
+        if environment.env_type in ['loop_laps']:
+            #print('({0})'.format((location['x']-length, location['y']-height)))
+            #print('length: {0}\nheight: {1}'.format(length, height))
+            location_patches.append(plt.Rectangle(((location['x']-length), location['y']-height), length, height, linewidth=2, edgecolor='white', facecolor=location_cm(int(plotvals[i]))) if shape == 'square'
+                                else plt.Circle((location['x'], location['y']), radius, color=location_cm(int(plotvals[i]))))
+        
+        # Create patch for location
+        elif environment.env_type in ['multi_w_exploration', 'multi_w_alternation']:
+            
+            location_patches.append(plt.Rectangle(((location['x'])-length, location['y']-height), length, height, linewidth=2, edgecolor='white', facecolor=location_cm(int(plotvals[i]))) if shape == 'square'
+                                else plt.Circle((location['x'], location['y']), radius, color=location_cm(int(plotvals[i]))))
+        
+        # And create action patches, if action plotting is switched on
+        if do_plot_actions:
+            for a, action in enumerate(location['actions']):
+                # Only draw patch if action probability is larger than 0
+                if action['probability'] > 0:
+                    # Find where this action takes you
+                    locations_to = [environment.locations[loc_to] for loc_to in np.where(np.array(action['transition'])>0)[0]]
+                    # Create an action patch for each possible transition for this action
+                    for loc_to in locations_to:
+                        action_patches.append(action_patch(location, loc_to, radius, action_cm(action['id'])))
+    # After drawing all locations, add shiny patches
+    for location in environment.locations:
+        # For shiny locations, add big red patch to indicate shiny
+        if location['shiny']:
+            # Create square patch for location
+            location_patches.append(plt.Rectangle((location['x']-radius/2, location['y']-radius/2), radius, radius, linewidth=1, facecolor='none', edgecolor=[1,0,0]) if shape == 'square'
+                                    else plt.Circle((location['x'], location['y']), radius, linewidth=1, facecolor='none', edgecolor=[1,0,0]))            
+    # Add patches to axes
+    for patch in location_patches + action_patches:
+        ax.add_patch(patch)
+        #print('length: {0}, height: {1}'.format(patch.get_width(), patch.get_height()))
+
+    # Return axes for further use
+    return ax
+
+def plot_all_frequencies_all_cells_all_trajectories(p_env, environment, num_cols=13, verbose=False):
+    
+    for frequency in np.arange(5):
+        plot_single_frequency_all_cells_all_trajectories(p_env, frequency, environment, num_cols, verbose)
+
+
+def plot_single_frequency_all_cells_all_trajectories(p_env, frequency, environment, num_cols=13, verbose=False):
+    
+    for cell_num in np.arange(p_env[frequency][0][0].shape[0]):
+        plot_single_cell_all_trajectories(p_env, frequency, cell_num, environment, num_cols, verbose)
+        
+
+def plot_single_cell_all_trajectories(p_env, frequency, cell_num, environment, num_cols=13, verbose=False):
+    
+    fig, axs = plt.subplots(6, 6, figsize=(10, 6), tight_layout=True)
+    traj_by_loc_by_cell = np.array(p_env[frequency])
+    # Find min and max but ignore -999 which signifies locations that were never visited
+    all_traj_min = np.min(traj_by_loc_by_cell[:, :, cell_num][traj_by_loc_by_cell[:, :, cell_num] != -999])
+    all_traj_max = np.max(traj_by_loc_by_cell[:, :, cell_num][traj_by_loc_by_cell[:, :, cell_num] != -999] - all_traj_min)
+    #print('all_traj_min: {0}, all_traj_max: {1}'.format(all_traj_min, all_traj_max))
+    if (all_traj_min != 0) and (all_traj_max != 0):
+        for row in np.arange(6):
+            for col in np.arange(6):
+                axs[row, col].axis('off')
+                if row != col:
+                    axs[row, col] = plot_single_cell_single_trajectory(p_env, frequency=frequency, trajectory=(row, col), cell_num=cell_num, environment=environment, min_val=all_traj_min, max_val=all_traj_max, num_cols=13, verbose=False, ax=axs[row, col])
+
+        fig.suptitle('cell {0}.{1}'.format(frequency, cell_num))
+
+        
+        
+def plot_single_cell_single_trajectory(p_env, frequency, trajectory, cell_num, environment, location_cm='viridis', action_cm='Pastel1', do_plot_actions=False, shape='square', radius=None, min_val=None, max_val=None, fig=None, ax=None, num_cols=10, verbose=False):
+
+    trajectory_dict = analyse.make_trajectory_dict()
+    trajectory_i = trajectory_dict[trajectory]
+    trajectory_loc_by_cells = np.array(p_env[frequency][trajectory_i])
+    values = trajectory_loc_by_cells[:, cell_num]
+
+    # If min_val and max_val are not specified: take the minimum and maximum of the supplied values
+    #print('values: {0}'.format(values))
+    #print(values)
+    #print(values[values != 0])
+    values[values != -999] = values[values != -999] - min_val
+    values[values == -999] = 0
+    values = np.divide(values, max_val)
+    #print(np.min(values), np.max(values))
+    #min_val = np.min(values) if np.count_nonzero(values) else 0 if min_val is None else min_val
+    #max_val = np.max(values) if np.count_nonzero(values) else 0 if max_val is None else max_val
+    # Create color map for locations: colour given by value input
+    location_cm = cm.get_cmap(location_cm, num_cols)
+    # Create color map for actions: colour given by action index
+    action_cm = cm.get_cmap(action_cm, environment.n_actions)
+    # Calculate colour corresponding to each value
+    plotvals = np.floor(values * num_cols) if max_val != min_val else np.ones(values.shape)
+    
+    #print(plotvals)
+    #print('max: {0}, min: {1}'.format(np.max(plotvals), np.min(plotvals)))
+    # Initialise empty axis
+    ax = initialise_axes(ax, environment.env_type)
+    # Create empty list of location patches and action patches
+    location_patches, action_patches = [], []
+    # Make multi_w_exploration states all same sized squares
+    if environment.env_type in ['multi_w_exploration']:
+        length = 0.125
+        height = 0.125
+    elif environment.env_type in ['loop_laps']:
+        length = 0.250
+        height = 0.250
+    # Assume loop_laps
+    else:
+        length = 0.250
+        height = 0.250
+        
+    #print('length: {0}\nheight: {1}'.format(length, height))
+    if radius is None:
+        # redundant for now
+        if environment.env_type == 'loop_laps':
+            #radius = 0.250
+            length = 0.250
+            height = 0.250
+        elif environment.env_type == 'multi_w_exploration':
+            length = 0.125
+            height = 0.125
+        else:
+            # Calculate radius of location circles based on how many nodes there are
+            radius = 2*(0.01 + 1/(10*np.sqrt(environment.n_locations)))
+
+    # Now start drawing locations and actions
+    for i, location in enumerate(environment.locations):
+        #print('environment.env_type')
+        # Create patch for location
+        if environment.env_type in ['loop_laps']:
+            #print('({0})'.format((location['x']-length, location['y']-height)))
+            #print('length: {0}\nheight: {1}'.format(length, height))
+            location_patches.append(plt.Rectangle(((location['x']-length), location['y']-height), length, height, linewidth=2, edgecolor='white', facecolor=location_cm(int(plotvals[i]))) if shape == 'square'
+                                else plt.Circle((location['x'], location['y']), radius, color=location_cm(int(plotvals[i]))))
+        
+        # Create patch for location
+        elif environment.env_type in ['multi_w_exploration', 'multi_w_alternation']:
+            if not np.isnan(plotvals[i]):
+                location_patches.append(plt.Rectangle(((location['x'])-length, location['y']-height), length, height, linewidth=2, edgecolor='white', facecolor=location_cm(int(plotvals[i]))) if shape == 'square'
+                                else plt.Circle((location['x'], location['y']), radius, color=location_cm(int(plotvals[i]))))
+        
+        # And create action patches, if action plotting is switched on
+        if do_plot_actions:
+            for a, action in enumerate(location['actions']):
+                # Only draw patch if action probability is larger than 0
+                if action['probability'] > 0:
+                    # Find where this action takes you
+                    locations_to = [environment.locations[loc_to] for loc_to in np.where(np.array(action['transition'])>0)[0]]
+                    # Create an action patch for each possible transition for this action
+                    for loc_to in locations_to:
+                        action_patches.append(action_patch(location, loc_to, radius, action_cm(action['id'])))
+    # After drawing all locations, add shiny patches
+    for location in environment.locations:
+        # For shiny locations, add big red patch to indicate shiny
+        if location['shiny']:
+            # Create square patch for location
+            location_patches.append(plt.Rectangle((location['x']-radius/2, location['y']-radius/2), radius, radius, linewidth=1, facecolor='none', edgecolor=[1,0,0]) if shape == 'square'
+                                    else plt.Circle((location['x'], location['y']), radius, linewidth=1, facecolor='none', edgecolor=[1,0,0]))            
+    # Add patches to axes
+    for patch in location_patches + action_patches:
+        ax.add_patch(patch)
+        #print('length: {0}, height: {1}'.format(patch.get_width(), patch.get_height()))
+
+    # Return axes for further use
+    if verbose:
+        print(values)
+        
+    ax.set_title('trajectory {0}'.format((trajectory[0]+1, trajectory[1]+1)))
+    return ax
+
+
+    
+def plot_actions(environment, field='probability', ax=None, min_val=None, max_val=None, num_cols=100, action_cm='viridis'):
+    # If min_val and max_val are not specified: take the minimum and maximum of the supplied values
+    min_val = min([action[field] for location in environment.locations for action in location['actions']]) if min_val is None else min_val
+    max_val = max([action[field] for location in environment.locations for action in location['actions']]) if max_val is None else max_val
+    # Create color map for locations: colour given by value input
+    action_cm = cm.get_cmap(action_cm, num_cols)
+    # Calculate radius of location circles based on how many nodes there are
+    radius = 2*(0.01 + 1/(10*np.sqrt(environment.n_locations)))
+    # Initialise empty axis
+    ax = initialise_axes(ax, environment.env_type)
+    # Create empty list of location patches and action patches
+    location_patches, action_patches = [], []
+    # Now start drawing locations and actions
+    for i, location in enumerate(environment.locations):
+        # Create circle patch for location
+        location_patches.append(plt.Circle((location['x'], location['y']), radius, color=[0, 0, 0]))
+        # And create action patches
+        for a, action in enumerate(location['actions']):
+            # Only draw patch if action probability is larger than 0
+            if action['probability'] > 0:
+                # Calculate colour for this action from colour map
+                action_colour = action_cm(int(np.floor((action[field] - min_val) / (max_val - min_val) * num_cols)))
+                # Find where this action takes you
+                locations_to = [environment.locations[loc_to] for loc_to in np.where(np.array(action['transition'])>0)[0]]
+                # Create an action patch for each possible transition for this action
+                for loc_to in locations_to:
+                    action_patches.append(action_patch(location, loc_to, radius, action_colour))
+    # Add patches to axes
+    #ax.set_xlim(0, 1.375)
+    #ax.set_ylim(0, 0.625)
+    for patch in (location_patches + action_patches):
+        ax.add_patch(patch)
+    # Return axes for further use
+    return ax
+
+def plot_walk(environment, walk, max_steps=None, n_steps=1, ax=None):
+    # Set maximum number of steps if not provided
+    max_steps = len(walk) if max_steps is None else min(max_steps, len(walk))
+    # Initialise empty axis if axis wasn't provided
+    if ax is None:
+        ax = initialise_axes(ax, environment.env_type)
+    # Find all circle patches on current axis
+    location_patches = [patch_i for patch_i, patch in enumerate(ax.patches) if type(patch) is plt.Circle or type(patch) is plt.Rectangle]
+    # Get radius of location circles on this map
+    radius = (ax.patches[location_patches[-1]].get_radius() if type(ax.patches[location_patches[-1]]) is plt.Circle 
+              else ax.patches[location_patches[-1]].get_width()) if len(location_patches) > 0 else 0.02
+    # Initialise previous location: location of first location
+    prev_loc = np.array([environment.locations[walk[0][0]['id']]['x'], environment.locations[walk[0][0]['id']]['y']])
+    # Run through walk, creating lines
+    for step_i in range(1, max_steps, n_steps):
+        # Get location of current location, with some jitter so lines don't overlap
+        new_loc = np.array([environment.locations[walk[step_i][0]['id']]['x'], environment.locations[walk[step_i][0]['id']]['y']])
+        # Add jitter (need to unpack shape for rand - annoyingly np.random.rand takes dimensions separately)
+        new_loc = new_loc + 0.8*(-radius + 2*radius*np.random.rand(*new_loc.shape))
+        # Plot line from previous location to current location
+        plt.plot([prev_loc[0], new_loc[0]], [prev_loc[1], new_loc[1]], color=[step_i/max_steps for _ in range(3)])
+        # Update new location to previous location
+        prev_loc = new_loc
+    # Return axes that this was plotted on
+    return ax
+
+def plot_cells(p, g, environment, n_f_ovc=0, columns=10, save_dir=None, index='0', seed=0):
+    # Run through all hippocampal and entorhinal rate maps, big nested arrayxs arranged as [frequency][location][cell]
+    #print('len(p): {0}'.format(len(p)))
+    for cells, names in zip([p, g],['Hippocampal','Entorhinal']):
+        # Calculate the number of rows that each frequency module requires
+        #print('how many cells: len(cells[0][0]): {0}'.format(len(cells[0][0])))
+        n_rows_f = np.cumsum([0] + [np.ceil(len(c[0]) * 1.0 / columns) for c in cells]).astype(int)
+        # Create subplots for cells across frequencies
+        if names == 'Hippocampal':
+            fig, ax = plt.subplots(nrows=n_rows_f[-1], ncols=columns, figsize=(120, 150))
+        else:
+            fig, ax = plt.subplots(nrows=n_rows_f[-1], ncols=columns, figsize=(120, 60))
+        # Switch all axes off
+        for row in ax:
+            for col in row:
+                col.axis('off')
+        # And run through all frequencies to plot cells for that frequency
+        for f, loc_rates in enumerate(cells):
+            # Set title for current axis
+            ax[n_rows_f[f], int(columns/2)].set_title('{0} '.format(environment.env_type) + names + ('' if f < len(cells) - n_f_ovc else ' object vector ') + ' cells, frequency ' 
+                                         + str(f if f < len(cells) - n_f_ovc else f - (len(cells) - n_f_ovc)), fontdict={'fontsize':100})
+            # Plot map for each cell
+            # row, col are the coordinates in the axes object for this particular cell c
+            for c in range(len(loc_rates[0])):
+                # Get current row and column
+                row = int(n_rows_f[f] + np.floor(c / columns))
+                col = int(c % columns)
+
+                # Send in correct radius size
+                radius = 0.250 if environment.env_type in ['loop_laps', 'multi_w_exploration', 'multi_w_alternation'] else 1/np.sqrt(len(loc_rates))
+                # Plot rate map for this cell by collection firing rate at each location
+                plot_map(environment, np.array([loc_rates[l][c] for l in range(len(loc_rates))]), ax[row, col], shape='square', radius=radius)
+        
+        fig.tight_layout()
+        
+        if save_dir:
+            plt.savefig(save_dir + 'index_{0}_seed_{1}_{2}_cells.svg'.format(index, seed, names))
+            plt.savefig(save_dir + 'index_{0}_seed_{1}_{2}_cells.png'.format(index, seed, names)) 
+    
+# Plot trajectory-level firing rates so that path dependence where directions are flipped is visible
+def plot_flip_direction(all_p_env, frequency, cell_num, environment, ax):
+
+    linearized_dict = linearize_neighbor_trajectories(all_p_env, frequency, cell_num, environment)
+
+    for left_arm in np.arange(5):
+
+        trajectory = (left_arm, left_arm+1)
+        reverse_trajectory = trajectory[::-1]
+
+        ax.plot(linearized_dict[trajectory][:-1], label='{0}'.format((trajectory[0]+1, trajectory[1]+1)))
+        ax.plot(linearized_dict[reverse_trajectory][:-1][::-1], label='{0}'.format((trajectory[0]+1, trajectory[1]+1)))
+
+    ax.legend(bbox_to_anchor=(1.1, 1))
+
+    return ax 
+
+# Plot trajectory-level firing rates so that path dependence where start arms are the same is visible
+def plot_same_start(all_p_env, frequency, cell_num, environment, ax):
+
+    linearized_dict = linearize_neighbor_trajectories(all_p_env, frequency, cell_num, environment)
+
+    for arm1 in np.arange(1, 5):
+
+        to_left = (arm1, arm1-1)
+        to_right = (arm1, arm1+1)
+        ax.plot(linearized_dict[to_left][:3], label='{0}'.format((to_left[0]+1, to_left[1]+1)))
+        ax.plot(linearized_dict[to_right][:3], label='{0}'.format((to_right[0]+1, to_right[1]+1)))
+        ax.set_xticks(np.arange(3))
+
+    ax.legend()
+
+    return ax
+
+# Plot trajectory-level firing rates so that path dependence where end arms are the same is visible
+def plot_same_end(all_p_env, frequency, cell_num, environment, ax):
+    
+    linearized_dict = linearize_neighbor_trajectories(all_p_env, frequency, cell_num, environment)
+
+    for arm2 in np.arange(1, 5):
+        
+        from_left = (arm2-1, arm2)
+        from_right = (arm2+1, arm2)
+        ax.plot(linearized_dict[from_left][4:], label='{0}'.format((from_left[0]+1, from_left[1]+1)))
+        ax.plot(linearized_dict[from_right][4:], label='{0}'.format((from_right[0]+1, from_right[1]+1)))
+        xticks = ax.set_xticks(np.arange(4))
+        ax.set_xticklabels(np.arange(4, 8))
+        
+    ax.legend()
+    
+    return ax
+
+def initialise_axes(ax=None, env_type='multi_w_exploration'):
+    # If no axes specified: create new figure with new empty axes
+    if ax is None:
+        plt.figure()
+        ax = plt.axes()    
+    # Set axes limits to 0, 1 as this is how the positions in the environment are setup
+    if env_type in ['multi_w_exploration']:
+        ax.set_xlim([0, 1.375])
+        ax.set_ylim([0, 0.500])
+        # Force axes to be square to keep proper aspect ratio
+        ax.set_aspect(1)
+    elif env_type in ['loop_laps']:
+        ax.set_xlim([-0.125, 1.875])
+        ax.set_ylim([-0.125, 0.875])
+        # Force axes to be square to keep proper aspect ratio
+        ax.set_aspect(1)
+    else:
+        ax.set_xlim([0, 1.375])
+        ax.set_ylim([0, 0.500])
+        # Force axes to be square to keep proper aspect ratio
+        ax.set_aspect(1)
+    # Revert y-axes so y position increases downwards (as it usually does in graphics/pixels)
+    ax.invert_yaxis()
+    # And don't show any axes
+    ax.axis('off')
+    # Return axes object
+    return ax
+
+def action_patch(location_from, location_to, radius, colour):
+    # Set patch coordinates                    
+    if location_to['id'] == location_from['id']:
+        # If this is a transition to self: action will point down (y-axis is reversed so pi/2 degrees is up)
+        a_dir = np.pi/2;
+        # Set the patch coordinates to point from this location to transition location (but shifted upward for self transition)
+        xdat = location_from['x'] + radius * np.array([2*np.cos((a_dir-np.pi/6)), 2*np.cos((a_dir+np.pi/6)), 3*np.cos((a_dir))])
+        ydat = location_from['y'] - radius * 3 + radius * np.array([2*np.sin((a_dir-np.pi/6)), 2*np.sin((a_dir+np.pi/6)), 3*np.sin((a_dir))]) 
+    else:
+        # This is not a transition to self. Find out the direction between current location and transitioned location
+        xvec = location_to['x']-location_from['x']
+        yvec = location_from['y']-location_to['y']
+        a_dir = np.arctan2(xvec*0-yvec*1,xvec*1+yvec*0);
+        # Set the patch coordinates to point from this location to transition location
+        xdat = location_from['x'] + radius * np.array([2*np.cos((a_dir-np.pi/6)), 2*np.cos((a_dir+np.pi/6)), 3*np.cos((a_dir))])
+        ydat = location_from['y'] + radius * np.array([2*np.sin((a_dir-np.pi/6)), 2*np.sin((a_dir+np.pi/6)), 3*np.sin((a_dir))])
+    # Return action patch for provided data
+    return plt.Polygon(np.stack([xdat, ydat], axis=1), color=colour)
+    
+
+## Just for convenience: all parameters in TEM
+#for name, param in model.named_parameters():
+#    if param.requires_grad:
+#        print(name, param.data)
+'''
+w_x
+b_x
+w_p.0
+w_p.1
+w_p.2
+w_p.3
+w_p.4
+MLP_D_a.w.0.0.weight
+MLP_D_a.w.0.0.bias
+MLP_D_a.w.0.1.weight
+MLP_D_a.w.0.1.bias
+MLP_D_a.w.1.0.weight
+MLP_D_a.w.1.0.bias
+MLP_D_a.w.1.1.weight
+MLP_D_a.w.1.1.bias
+MLP_D_a.w.2.0.weight
+MLP_D_a.w.2.0.bias
+MLP_D_a.w.2.1.weight
+MLP_D_a.w.2.1.bias
+MLP_D_a.w.3.0.weight
+MLP_D_a.w.3.0.bias
+MLP_D_a.w.3.1.weight
+MLP_D_a.w.3.1.bias
+MLP_D_a.w.4.0.weight
+MLP_D_a.w.4.0.bias
+MLP_D_a.w.4.1.weight
+MLP_D_a.w.4.1.bias
+MLP_sigma_g_path.w.0.0.weight
+MLP_sigma_g_path.w.0.0.bias
+MLP_sigma_g_path.w.0.1.weight
+MLP_sigma_g_path.w.0.1.bias
+MLP_sigma_g_path.w.1.0.weight
+MLP_sigma_g_path.w.1.0.bias
+MLP_sigma_g_path.w.1.1.weight
+MLP_sigma_g_path.w.1.1.bias
+MLP_sigma_g_path.w.2.0.weight
+MLP_sigma_g_path.w.2.0.bias
+MLP_sigma_g_path.w.2.1.weight
+MLP_sigma_g_path.w.2.1.bias
+MLP_sigma_g_path.w.3.0.weight
+MLP_sigma_g_path.w.3.0.bias
+MLP_sigma_g_path.w.3.1.weight
+MLP_sigma_g_path.w.3.1.bias
+MLP_sigma_g_path.w.4.0.weight
+MLP_sigma_g_path.w.4.0.bias
+MLP_sigma_g_path.w.4.1.weight
+MLP_sigma_g_path.w.4.1.bias
+MLP_sigma_p.w.0.0.weight
+MLP_sigma_p.w.0.0.bias
+MLP_sigma_p.w.0.1.weight
+MLP_sigma_p.w.0.1.bias
+MLP_sigma_p.w.1.0.weight
+MLP_sigma_p.w.1.0.bias
+MLP_sigma_p.w.1.1.weight
+MLP_sigma_p.w.1.1.bias
+MLP_sigma_p.w.2.0.weight
+MLP_sigma_p.w.2.0.bias
+MLP_sigma_p.w.2.1.weight
+MLP_sigma_p.w.2.1.bias
+MLP_sigma_p.w.3.0.weight
+MLP_sigma_p.w.3.0.bias
+MLP_sigma_p.w.3.1.weight
+MLP_sigma_p.w.3.1.bias
+MLP_sigma_p.w.4.0.weight
+MLP_sigma_p.w.4.0.bias
+MLP_sigma_p.w.4.1.weight
+MLP_sigma_p.w.4.1.bias
+MLP_mu_g_mem.w.0.0.weight
+MLP_mu_g_mem.w.0.0.bias
+MLP_mu_g_mem.w.0.1.weight
+MLP_mu_g_mem.w.0.1.bias
+MLP_mu_g_mem.w.1.0.weight
+MLP_mu_g_mem.w.1.0.bias
+MLP_mu_g_mem.w.1.1.weight
+MLP_mu_g_mem.w.1.1.bias
+MLP_mu_g_mem.w.2.0.weight
+MLP_mu_g_mem.w.2.0.bias
+MLP_mu_g_mem.w.2.1.weight
+MLP_mu_g_mem.w.2.1.bias
+MLP_mu_g_mem.w.3.0.weight
+MLP_mu_g_mem.w.3.0.bias
+MLP_mu_g_mem.w.3.1.weight
+MLP_mu_g_mem.w.3.1.bias
+MLP_mu_g_mem.w.4.0.weight
+MLP_mu_g_mem.w.4.0.bias
+MLP_mu_g_mem.w.4.1.weight
+MLP_mu_g_mem.w.4.1.bias
+MLP_sigma_g_mem.w.0.0.weight
+MLP_sigma_g_mem.w.0.0.bias
+MLP_sigma_g_mem.w.0.1.weight
+MLP_sigma_g_mem.w.0.1.bias
+MLP_sigma_g_mem.w.1.0.weight
+MLP_sigma_g_mem.w.1.0.bias
+MLP_sigma_g_mem.w.1.1.weight
+MLP_sigma_g_mem.w.1.1.bias
+MLP_sigma_g_mem.w.2.0.weight
+MLP_sigma_g_mem.w.2.0.bias
+MLP_sigma_g_mem.w.2.1.weight
+MLP_sigma_g_mem.w.2.1.bias
+MLP_sigma_g_mem.w.3.0.weight
+MLP_sigma_g_mem.w.3.0.bias
+MLP_sigma_g_mem.w.3.1.weight
+MLP_sigma_g_mem.w.3.1.bias
+MLP_sigma_g_mem.w.4.0.weight
+MLP_sigma_g_mem.w.4.0.bias
+MLP_sigma_g_mem.w.4.1.weight
+MLP_sigma_g_mem.w.4.1.bias
+MLP_c_star.w.0.0.weight
+MLP_c_star.w.0.0.bias
+MLP_c_star.w.0.1.weight
+MLP_c_star.w.0.1.bias
+'''
