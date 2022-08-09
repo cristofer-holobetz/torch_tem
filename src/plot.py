@@ -404,7 +404,7 @@ def plot_cells(p, g, environment, n_f_ovc=0, columns=10, save_dir=None, index='0
 # Plot trajectory-level firing rates so that path dependence where directions are flipped is visible
 def plot_flip_direction(all_p_env, frequency, cell_num, environment, ax):
 
-    linearized_dict = linearize_neighbor_trajectories(all_p_env, frequency, cell_num, environment)
+    linearized_dict = analyse.linearize_neighbor_trajectories(all_p_env, frequency, cell_num, environment)
 
     for left_arm in np.arange(5):
 
@@ -421,7 +421,7 @@ def plot_flip_direction(all_p_env, frequency, cell_num, environment, ax):
 # Plot trajectory-level firing rates so that path dependence where start arms are the same is visible
 def plot_same_start(all_p_env, frequency, cell_num, environment, ax):
 
-    linearized_dict = linearize_neighbor_trajectories(all_p_env, frequency, cell_num, environment)
+    linearized_dict = analyse.linearize_neighbor_trajectories(all_p_env, frequency, cell_num, environment)
 
     for arm1 in np.arange(1, 5):
 
@@ -438,7 +438,7 @@ def plot_same_start(all_p_env, frequency, cell_num, environment, ax):
 # Plot trajectory-level firing rates so that path dependence where end arms are the same is visible
 def plot_same_end(all_p_env, frequency, cell_num, environment, ax):
     
-    linearized_dict = linearize_neighbor_trajectories(all_p_env, frequency, cell_num, environment)
+    linearized_dict = analyse.linearize_neighbor_trajectories(all_p_env, frequency, cell_num, environment)
 
     for arm2 in np.arange(1, 5):
         
